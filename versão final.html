@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Cyber Shield Ultra Pro</title>
+    <style>
+        * { box-sizing: border-box; touch-action: none; -webkit-tap-highlight-color: transparent; user-select: none; }
+        body { background: #000; color: #fff; font-family: 'Segoe UI', Roboto, sans-serif; margin: 0; overflow: hidden; height: 100vh; }
+        
+        /* Ecrãs de Interface */
+        .tela { 
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%; 
+            background: radial-gradient(circle at center, #001a33 0%, #000 100%);
+            display: flex; flex-direction: column; align-items: center; 
+            justify-content: center; z-index: 10000; padding: 30px; text-align: center;
+        }
+
+        input { 
+            background: #111; border: 2px solid #00f2ff; color: #fff; 
+            padding: 15px; font-size: 20px; width: 85%; border-radius: 12px; 
+            margin-bottom: 20px; text-align: center; outline: none;
+        }
+
+        .btn-acao { 
+            background: #00f2ff; color: #000; padding: 25px; 
+            font-size: 22px; font-weight: bold; border: none; 
+            border-radius: 15px; width: 85%; cursor: pointer;
+            box-shadow: 0 0 30px rgba(0, 242, 255, 0.5);
+        }
+
+        /* Jogo */
+        #container-jogo { display: none; height: 100vh; flex-direction: column; }
+        #topo { 
+            height: 110px; background: rgba(0, 26, 51, 0.9); 
+            border-bottom: 3px solid #00f2ff; padding: 10px; 
+            display: flex; flex-direction: column; align-items: center; 
+        }
+        #texto-pergunta { color: #00f2ff; font-weight: bold; font-size: 15px; text-align: center; min-height: 45px; }
+        
+        canvas { background: #000; flex-grow: 1; width: 100%; display: block; }
+
+        /* Ranking Table */
+        table { width: 100%; margin-top: 15px; border-collapse: collapse; font-size: 14px; }
+        th { color: #00f2ff; border-bottom: 1px solid #00f2ff; padding: 5px; }
+        td { padding: 5px; border-bottom: 1px solid #222; }
+    </style>
+</head>
+<body>
+
+    <div id="tela-inicio" class="tela">
+        <h1 style="color:#00f2ff; font-size: 38px; margin: 0 0 10px 0;">🛡️ CYBER ULTRA</h1>
+        <p style="color:#888; margin-bottom: 25px;">Protege o sistema contra hackers!</p>
+        <input type="text" id="player-name" placeholder="Teu Nickname" maxlength="12">
+        <button class="btn-acao" onclick="configurarEIniciar()">INICIAR SISTEMA</button>
+    </div>
+
+    <div id="container-jogo">
+        <div id="topo">
+            <div id="texto-pergunta">A CARREGAR...</div>
+            <div style="font-size: 18px; margin-top: 5px;">PONTOS: <span id="val-score" style="color:#00f2ff">0</span></div>
+        </div>
+        <canvas id="c"></canvas>
+    </div>
+
+    <div id="tela-fim" class="tela" style="display:none;">
+        <h2 style="color:#ff0055; font-size: 32px; margin: 0;">SISTEMA INFETADO</h2>
+        <p id="causa-morte" style="margin: 15px 0; font-size: 16px; color: #eee;"></p>
+        <div style="width:100%; background: rgba(0,242,255,0.05); padding: 15px; border-radius: 10px; border: 1px solid #00f2ff;">
+            <h3 style="margin: 0; color:#00f2ff;">🏆 TOP AGENTES</h3>
+            <table>
+                <thead><tr><th>#</th><th>NICK</th><th>PTS</th></tr></thead>
+                <tbody id="lista-ranking"></tbody>
+            </table>
+        </div>
+        <button class="btn-acao" style="margin-top:20px;" onclick="location.reload()">REPARAR SISTEMA</button>
+    </div>
+
+    <script>
+        const cv = document.getElementById('c');
+        const ctx = cv.getContext('2d');
+        const pergUI = document.getElementById('texto-pergunta');
+        const scoreUI = document.getElementById('val-score');
+
+        // BANCO DE PERGUNTAS COMPLETO (IDÊNTICO AO ORIGINAL)
+        const bancoPerguntas = [
+            { q: "Qual destas PASSWORDS é a mais forte?", ok: ["G@to_2026_Azul#", "P4ss_Secur3_!", "XyZ_99_#Abc"], no: ["123456", "password", "admin123", "querty"] },
+            { q: "Recebeste um LINK estranho por SMS:", ok: ["Apagar SMS", "Bloquear Número", "Ignorar"], no: ["Abrir Link", "Ver Foto", "Aceitar", "Clicar"] },
+            { q: "WIFI PÚBLICO: Estás num café ou aeroporto.", ok: ["Usar uma VPN", "Só ler notícias"], no: ["Ir ao Banco", "Comprar Online", "Pagar Contas"] },
+            { q: "O teu INSTAGRAM pede a password por email:", ok: ["Não enviar", "Denunciar Spam"], no: ["Enviar Password", "Fazer Login", "Confirmar"] },
+            { q: "O site diz: 'O seu PC tem 5 VÍRUS!'", ok: ["Fechar a Aba", "Sair do Site"], no: ["Instalar Antivírus", "Clicar em OK", "Limpar Agora"] }
+        ];
+
+        let score = 0, ativo = false, player, items = [], quiz;
+
+        // FUNÇÃO QUE DESTRAVA O JOGO NO TELEMÓVEL
+        function configurarEIniciar() {
+            const nick = document.getElementById('player-name').value || "Agente";
+            localStorage.setItem('ultimo_nick', nick);
+            
+            document.getElementById('tela-inicio').style.display = 'none';
+            document.getElementById('container-jogo').style.display = 'flex';
+            
+            cv.width = window.innerWidth;
+            cv.height = window.innerHeight - 110;
+            
+            player = { x: cv.width/2 - 60, y: cv.height - 65, w: 120, h: 25 };
+            score = 0;
+            items = [];
+            ativo = true;
+            
+            novaRodada();
+            loopPrincipal();
+        }
+
+        function novaRodada() {
+            quiz = bancoPerguntas[Math.floor(Math.random() * bancoPerguntas.length)];
+            pergUI.innerText = quiz.q;
+            scoreUI.innerText = score;
+        }
+
+        // CONTROLOS TOUCH (MOVIMENTO DO DEDO)
+        cv.addEventListener('touchmove', (e) => {
+            e.preventDefault();
+            let t = e.touches[0];
+            player.x = t.clientX - player.w / 2;
+            if(player.x < 0) player.x = 0;
+            if(player.x > cv.width - player.w) player.x = cv.width - player.w;
+        }, {passive: false});
+
+        function desenharItem(it) {
+            ctx.font = "bold 15px Arial";
+            let larguraTxt = ctx.measureText(it.txt).width;
+            
+            ctx.fillStyle = "rgba(0, 30, 60, 0.95)";
+            ctx.strokeStyle = "#00f2ff";
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.roundRect(it.x - 10, it.y - 25, larguraTxt + 20, 35, 8);
+            ctx.fill(); ctx.stroke();
+            
+            ctx.fillStyle = "#fff";
+            ctx.fillText(it.txt, it.x, it.y);
+        }
+
+        function loopPrincipal() {
+            if(!ativo) return;
+            ctx.clearRect(0, 0, cv.width, cv.height);
+            
+            // Desenhar Jogador (Escudo)
+            ctx.fillStyle = "#00f2ff";
+            ctx.shadowBlur = 15; ctx.shadowColor = "#00f2ff";
+            ctx.fillRect(player.x, player.y, player.w, player.h);
+            ctx.shadowBlur = 0;
+
+            // Criar novos itens a cair
+            if(Math.random() < 0.03) {
+                let eBom = Math.random() > 0.5;
+                items.push({
+                    x: Math.random() * (cv.width - 100) + 10,
+                    y: -30,
+                    txt: eBom ? quiz.ok[Math.floor(Math.random()*quiz.ok.length)] : quiz.no[Math.floor(Math.random()*quiz.no.length)],
+                    bom: eBom,
+                    vel: 2.8 + (score / 150)
+                });
+            }
+
+            items.forEach((it, i) => {
+                it.y += it.vel;
+                desenharItem(it);
+
+                // Colisão com o Escudo
+                if(it.y > player.y - 15 && it.y < player.y + 20 && it.x > player.x - 40 && it.x < player.x + player.w) {
+                    if(it.bom) {
+                        score += 10;
+                        items = []; // Limpa ecrã para nova pergunta
+                        novaRodada();
+                    } else {
+                        fimDeJogo(it.txt);
+                    }
+                }
+                if(it.y > cv.height + 50) items.splice(i, 1);
+            });
+            requestAnimationFrame(loopPrincipal);
+        }
+
+        function fimDeJogo(causa) {
+            ativo = false;
+            const nick = localStorage.getItem('ultimo_nick');
+            document.getElementById('tela-fim').style.display = 'flex';
+            document.getElementById('causa-morte').innerHTML = `Hackeado por aceitar:<br><b style="color:#00f2ff">"${causa}"</b>`;
+            
+            // Gravar Ranking Local
+            let rank = JSON.parse(localStorage.getItem('rank_cyber_mobile')) || [];
+            rank.push({ n: nick, p: score });
+            rank.sort((a,b) => b.p - a.p);
+            rank = rank.slice(0, 5);
+            localStorage.setItem('rank_cyber_mobile', JSON.stringify(rank));
+
+            document.getElementById('lista-ranking').innerHTML = rank.map((it, i) => 
+                `<tr><td>${i+1}</td><td>${it.n}</td><td>${it.p}</td></tr>`).join("");
+        }
+    </script>
+</body>
+</html>
