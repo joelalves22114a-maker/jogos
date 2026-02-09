@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Cyber Mobile Final</title>
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #000; font-family: sans-serif; user-select: none; touch-action: none; -webkit-touch-callout: none; }
+        #hud { position: absolute; top: 10px; left: 10px; color: #0f0; font-weight: bold; pointer-events: none; z-index: 10; background: rgba(0,0,0,0.5); padding: 5px; }
+        #crosshair { position: absolute; top: 50%; left: 50%; width: 10px; height: 10px; border: 2px solid #0f0; border-radius: 50%; transform: translate(-50%, -50%); pointer-events: none; z-index: 20; }
+        
+        /* Controlos */
+        .joystick-zone { position: absolute; bottom: 30px; left: 30px; width: 120px; height: 120px; border: 2px solid rgba(0,255,0,0.3); border-radius: 50%; z-index: 50; display: flex; justify-content: center; align-items: center; }
+        .stick-knob { width: 50px; height: 50px; background: rgba(0,255,0,0.5); border-radius: 50%; position: absolute; pointer-events: none; }
+        #aim-zone { position: absolute; top: 0; right: 0; width: 50%; height: 100%; z-index: 40; }
+        #btn-jump { position: absolute; bottom: 50px; right: 30px; width: 70px; height: 70px; background: rgba(0,50,0,0.8); border: 2px solid #0f0; border-radius: 50%; color: #0f0; display: flex; justify-content: center; align-items: center; font-weight: bold; z-index: 60; }
+        
+        /* Menus */
+        .overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: #000; display: flex; flex-direction: column; align-items: center; justify-content: center; color: #0f0; z-index: 100; }
+        .hidden { display: none !important; }
+        button { background: #003300; color: #0f0; border: 1px solid #0f0; padding: 15px 40px; font-size: 20px; margin-top: 20px; font-weight: bold; }
+        
+        /* Quiz */
+        #quiz-box { background: #111; border: 1px solid #0f0; padding: 20px; width: 80%; text-align: center; border-radius: 10px; }
+        .quiz-opt { display: block; width: 100%; padding: 15px; margin: 10px 0; background: #000; border: 1px solid #444; color: #fff; }
+    </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+</head>
+<body>
+
+    <div id="crosshair"></div>
+    <div id="hud">HP: 100% | SCORE: 0</div>
+    
+    <div id="stick-left" class="joystick-zone"><div class="stick-knob" id="knob-left"></div></div>
+    <div id="aim-zone"></div>
+    <div id="btn-jump">UP</div>
+
+    <div id="start-screen" class="overlay">
+        <h1>CYBER MOBILE</h1>
+        <p>Esq: Mover | Dir: Mirar + Disparar</p>
+        <button id="btn-start">JOGAR</button>
+    </div>
+
+    <div id="quiz-screen" class="overlay hidden">
+        <div id="quiz-box">
+            <h2 style="color:red">AMEAÇA</h2>
+            <p id="q-text">...</p>
+            <div id="q-opts"></div>
+        </div>
+    </div>
+    
+    <div id="gameover-screen" class="overlay hidden">
+        <h1 style="color:red">GAME OVER</h1>
+        <button onclick="location.reload()">REINICIAR</button>
+    </div>
+
+<script>
+    // Se houver erro, mostra alerta no telemóvel
+    window.onerror = function(msg, url, line) { alert("Erro: " + msg); };
+
+    let camera, scene, renderer, raycaster, gun;
+    let enemies = [], score = 0, hp = 100;
+    let active = false, quiz = false, currEnemy = null;
+    let move = {x:0, y:0}, canJump = false;
+    let velocity = new THREE.Vector3();
+    let prevTime = performance.now();
+    let yaw = 0, pitch = 0;
+
+    const questions = [
+        {q:"Email pede senha?", o:["Dou","Apago"], a:1},
+        {q:"Antivírus?", o:["Sim","Não"], a:0},
+        {q:"Link estranho?", o:["Clico","Ignoro"], a:1}
+    ];
+
+    function init() {
+        scene = new THREE.Scene(); scene.background = new THREE.Color(0x000510);
+        scene.fog = new THREE.Fog(0x000510, 0, 60);
+        
+        camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
+        camera.rotation.order = "YXZ";
+
+        renderer = new THREE.WebGLRenderer({antialias:true});
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.body.appendChild(renderer.domElement);
+
+        const light = new THREE.AmbientLight(0xffffff, 0.7); scene.add(light);
+        
+        // Chão e Cidade
+        const floor = new THREE.Mesh(new THREE.PlaneGeometry(200,200), new THREE.MeshBasicMaterial({color:0x111111}));
+        floor.rotation.x = -Math.PI/2; scene.add(floor);
+        scene.add(new THREE.GridHelper(200, 50, 0x00ff00, 0x003300));
+
+        // Predios
+        const geo = new THREE.BoxGeometry(1,1,1);
+        const mat = new THREE.MeshPhongMaterial({color:0x222222});
+        for(let i=0; i<30; i++) {
+            const m = new THREE.Mesh(geo, mat);
+            m.position.set((Math.random()-0.5)*100, 5, (Math.random()-0.5)*100);
+            if(Math.abs(m.position.x)<10) m.position.x+=20;
+            m.scale.set(5+Math.random()*5, 10+Math.random()*20, 5+Math.random()*5);
+            scene.add(m);
+        }
+
+        // Arma
+        gun = new THREE.Mesh(new THREE.BoxGeometry(0.1,0.1,0.5), new THREE.MeshBasicMaterial({color:0x555555}));
+        gun.position.set(0.2, -0.2, -0.5);
+        camera.add(gun); scene.add(camera);
+        camera.position.y = 1.6;
+
+        raycaster = new THREE.Raycaster();
+        
+        // Controlos
+        setupControls();
+        
+        document.getElementById('btn-start').onclick = () => {
+            document.getElementById('start-screen').classList.add('hidden');
+            active = true;
+        };
+
+        animate();
+    }
+
+    function setupControls() {
+        const stick = document.getElementById('stick-left');
+        const knob = document.getElementById('knob-left');
+        const aim = document.getElementById('aim-zone');
+        let sRect, lX, lY, tapT;
+
+        // Joystick
+        stick.ontouchstart = e => { sRect = stick.getBoundingClientRect(); handleStick(e.touches[0]); };
+        stick.ontouchmove = e => { e.preventDefault(); handleStick(e.touches[0]); };
+        stick.ontouchend = e => { move={x:0,y:0}; knob.style.transform='translate(0,0)'; };
+
+        function handleStick(t) {
+            const cx = sRect.left+60, cy = sRect.top+60;
+            let dx = t.clientX-cx, dy = t.clientY-cy;
+            const d = Math.sqrt(dx*dx+dy*dy);
+            if(d>40) { dx=(dx/d)*40; dy=(dy/d)*40; }
+            knob.style.transform=`translate(${dx}px,${dy}px)`;
+            move.x=dx/40; move.y=dy/40;
+        }
+
+        // Mira
+        aim.ontouchstart = e => { lX=e.touches[0].clientX; lY=e.touches[0].clientY; tapT=Date.now(); };
+        aim.ontouchmove = e => {
+            e.preventDefault();
+            const x=e.touches[0].clientX, y=e.touches[0].clientY;
+            yaw -= (x-lX)*0.005; pitch -= (y-lY)*0.005;
+            pitch = Math.max(-1.5, Math.min(1.5, pitch));
+            camera.rotation.x = pitch; camera.rotation.y = yaw;
+            lX=x; lY=y;
+        };
+        aim.ontouchend = e => { if(Date.now()-tapT < 200) shoot(); };
+
+        // Salto
+        document.getElementById('btn-jump').ontouchstart = e => { 
+            e.preventDefault(); 
+            if(canJump) { velocity.y += 15; canJump=false; } 
+        };
+    }
+
+    function shoot() {
+        if(!active || quiz) return;
+        gun.position.z += 0.2; setTimeout(()=>gun.position.z-=0.2, 50);
+        
+        // Laser
+        const laser = new THREE.Mesh(new THREE.BoxGeometry(0.05,0.05,10), new THREE.MeshBasicMaterial({color:0x00ff00}));
+        laser.position.copy(gun.position); laser.translateZ(-5); 
+        // Nota: Lasers simples para não bugar no mobile
+        
+        raycaster.setFromCamera(new THREE.Vector2(0,0), camera);
+        const hits = raycaster.intersectObjects(scene.children, true);
+        for(let h of hits) {
+            if(h.object.userData.enemy) { startQuiz(h.object.parent); break; }
+        }
+    }
+
+    function spawn() {
+        const g = new THREE.Group();
+        const m = new THREE.Mesh(new THREE.IcosahedronGeometry(1,0), new THREE.MeshBasicMaterial({color:0xff0000, wireframe:true}));
+        m.userData.enemy = true; // Marcação para o tiro
+        g.add(m);
+        
+        // Hitbox grande invisivel
+        const hit = new THREE.Mesh(new THREE.BoxGeometry(3,3,3), new THREE.MeshBasicMaterial({visible:false}));
+        hit.userData.enemy = true;
+        g.add(hit);
+
+        const a = Math.random()*6.28, d = 20+Math.random()*20;
+        g.position.set(camera.position.x+Math.cos(a)*d, 2, camera.position.z+Math.sin(a)*d);
+        scene.add(g); enemies.push(g);
+    }
+
+    function startQuiz(e) {
+        active=false; quiz=true; currEnemy=e;
+        const q = questions[Math.floor(Math.random()*questions.length)];
+        document.getElementById('q-text').innerText = q.q;
+        const div = document.getElementById('q-opts'); div.innerHTML='';
+        q.o.forEach((txt,i)=>{
+            const b = document.createElement('button'); b.className='quiz-opt'; b.innerText=txt;
+            b.onclick=()=>resolve(i===q.a); div.appendChild(b);
+        });
+        document.getElementById('quiz-screen').classList.remove('hidden');
+    }
+
+    function resolve(ok) {
+        document.getElementById('quiz-screen').classList.add('hidden');
+        if(ok) { scene.remove(currEnemy); enemies=enemies.filter(x=>x!==currEnemy); score+=100; }
+        else { hp-=20; currEnemy.position.y+=20; }
+        
+        document.getElementById('hud').innerText = `HP: ${hp}% | SCORE: ${score}`;
+        if(hp<=0) document.getElementById('gameover-screen').classList.remove('hidden');
+        else { quiz=false; active=true; }
+    }
+
+    function animate() {
+        requestAnimationFrame(animate);
+        const dt = (performance.now()-prevTime)/1000; prevTime=performance.now();
+
+        if(active && !quiz) {
+            // Movimento
+            const fwd = new THREE.Vector3(0,0,-1).applyAxisAngle(new THREE.Vector3(0,1,0), yaw);
+            const rgt = new THREE.Vector3(1,0,0).applyAxisAngle(new THREE.Vector3(0,1,0), yaw);
+            
+            if(Math.abs(move.y)>0.1) camera.position.add(fwd.multiplyScalar(-move.y*10*dt));
+            if(Math.abs(move.x)>0.1) camera.position.add(rgt.multiplyScalar(move.x*10*dt));
+
+            velocity.y -= 30 * dt; // Gravidade
+            camera.position.y += velocity.y * dt;
+            if(camera.position.y < 1.6) { velocity.y=0; camera.position.y=1.6; canJump=true; }
+
+            // Inimigos
+            if(Math.random()<0.02 && enemies.length<3) spawn();
+            enemies.forEach(e=>{
+                e.lookAt(camera.position); e.translateZ(3*dt);
+                if(e.position.distanceTo(camera.position)<2) {
+                    hp-=0.5; document.getElementById('hud').innerText=`HP: ${Math.floor(hp)}% | SCORE: ${score}`;
+                    if(hp<=0) { active=false; document.getElementById('gameover-screen').classList.remove('hidden'); }
+                }
+            });
+        }
+        renderer.render(scene, camera);
+    }
+    
+    init(); // Iniciar jogo
+</script>
+</body>
+</html>
